@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ローマ数字解読フラッシュカード</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .card-container { perspective: 1000px; }
+  .card-inner { transition: transform 0.6s; transform-style: preserve-3d; position: relative; }
+  .card-inner.flipped { transform: rotateY(180deg); }
+  .card-front, .card-back {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    position: absolute; inset: 0;
+  }
+  .card-back { transform: rotateY(180deg); }
+  @keyframes shake {
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-8px)}
+    40%{transform:translateX(8px)}
+    60%{transform:translateX(-6px)}
+    80%{transform:translateX(6px)}
+  }
+  .shake { animation: shake 0.4s ease; }
+  @keyframes pop {
+    0%{transform:scale(1)}
+    50%{transform:scale(1.08)}
+    100%{transform:scale(1)}
+  }
+  .pop { animation: pop 0.3s ease; }
+  .progress-bar { transition: width 0.4s ease; }
+</style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col">
+
+<header class="bg-gray-800 shadow-lg px-4 py-3 flex items-center justify-between">
+  <h1 class="text-xl font-bold tracking-wide">🏛️ ローマ数字フラッシュカード</h1>
+  <div class="flex gap-2 text-sm">
+    <span id="hdr-score" class="bg-yellow-600 px-2 py-1 rounded font-mono">スコア: 0</span>
+    <span id="hdr-streak" class="bg-green-700 px-2 py-1 rounded font-mono">🔥 0</span>
+  </div>
+</header>
+
+<main class="flex-1 flex flex-col items-center px-4 py-6 gap-6 max-w-2xl mx-auto w-full">
+
+  <!-- Settings Bar -->
+  <div class="w-full flex flex-wrap gap-3 items-center justify-center">
+    <div class="flex rounded overflow-hidden border border-gray-600">
+      <button id="btn-mode-r2a" onclick="setMode('r2a')"
+        class="mode-btn px-4 py-2 text-sm font-semibold bg-indigo-600 text-white"
+        aria-label="ローマ数字からアラビア数字モード">ローマ→アラビア</button>
+      <button id="btn-mode-a2r" onclick="setMode('a2r')"
+        class="mode-btn px-4 py-2 text-sm font-semibold bg-gray-700 text-gray-300"
+        aria-label="アラビア数字からローマ数字モード">アラビア→ローマ</button>
+    </div>
+    <div class="flex rounded overflow-hidden border border-gray-600">
+      <button id="btn-diff-small" onclick="setDiff('small')"
+        class="diff-btn px-4 py-2 text-sm font-semibold bg-teal-600 text-white"
+        aria-label="小数字難易度（1から100）">小数字 (1–100)</button>
+      <button id="btn-diff-large" onclick="setDiff('large')"
+        class="diff-btn px-4 py-2 text-sm font-semibold bg-gray-700 text-gray-300"
+        aria-label="大数字難易度（100から3999）">大数字 (100–3999)</button>
+    </div>
+    <button onclick="startSession()"
+      class="px-5 py-2 bg-orange-500 hover:bg-orange-400 rounded font-bold text-sm transition"
+      aria-label="新しいセッションを開始">🎲 新しいセッション</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="w-full">
+    <div class="flex justify-between text-xs text-gray-400 mb-1">
+      <span id="q-counter">問題 1 / 20</span>
+      <span id="q-correct">正解: 0</span>
+    </div>
+    <div class="w-full bg-gray-700 rounded-full h-2" role="progressbar" aria-valuemin="0" aria-valuemax="20" aria-valuenow="0" id="progress-aria">
+      <div id="progress-fill" class="progress-bar bg-indigo-500 h-2 rounded-full" style="width:0%"></div>
+    </div>
+  </div>
+
+  <!-- Card -->
+  <div class="card-container w-full" style="height:220px;">
+    <div id="card-inner" class="card-inner w-full h-full cursor-pointer" role="button" aria-label="カードをめくる" tabindex="0" onclick="flipCard()" onkeydown="if(event.key==='Enter')flipCard()">
+      <div class="card-front bg-gradient-to-br from-indigo-700 to-purple-800 rounded-2xl shadow-xl flex items-center justify-center h-full">
+        <div id="card-question" class="text-5xl font-bold tracking-widest text-center px-4">-</div>
+      </div>
+      <div class="card-back bg-gradient-to-br from-teal-700 to-emerald-800 rounded-2xl shadow-xl flex items-center justify-center h-full">
+        <div id="card-answer-display" class="text-5xl font-bold text-center px-4">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="w-full flex gap-3" id="input-area">
+    <input id="answer-input" type="text" placeholder="答えを入力..."
+      class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 text-lg font-mono focus:outline-none focus:border-indigo-400 uppercase"
+      aria-label="答え入力欄"
+      onkeydown="if(event.key==='Enter')checkAnswer()" />
+    <button onclick="checkAnswer()"
+      class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold transition"
+      aria-label="答えを確認">確認</button>
+  </div>
+
+  <!-- Feedback -->
+  <div id="feedback" class="w-full text-center text-lg font-bold py-2 rounded-lg hidden" role="alert"></div>
+
+  <!-- Records -->
+  <div class="w-full grid grid-cols-2 gap-3">
+    <div class="bg-gray-800 rounded-xl p-4 text-center">
+      <div class="text-xs text-gray-400 mb-1">ベストスコア</div>
+      <div id="best-score" class="text-3xl font-bold text-yellow-400">0</div>
+    </div>
+    <div class="bg-gray-800 rounded-xl p-4 text-center">
+      <div class="text-xs text-gray-400 mb-1">最長ストリーク</div>
+      <div id="best-streak" class="text-3xl font-bold text-green-400">0</div>
+    </div>
+  </div>
+
+  <!-- Session Result (hidden until end) -->
+  <div id="result-panel" class="hidden w-full bg-gray-800 rounded-2xl p-6 text-center shadow-xl">
+    <div class="text-3xl mb-2">🎉 セッション終了！</div>
+    <div id="result-text" class="text-xl font-bold mb-4"></div>
+    <button onclick="startSession()" class="px-8 py-3 bg-orange-500 hover:bg-orange-400 rounded-xl font-bold text-lg transition" aria-label="もう一度">もう一度</button>
+  </div>
+
+  <!-- Reference collapsible -->
+  <details class="w-full bg-gray-800 rounded-xl overflow-hidden">
+    <summary class="cursor-pointer px-4 py-3 font-semibold text-gray-300 hover:text-white select-none" aria-label="変換ルール参照カードを開閉">
+      📖 変換ルール参照カード
+    </summary>
+    <div class="px-4 pb-4">
+      <table class="w-full text-sm text-center border-collapse mt-2">
+        <thead><tr class="text-gray-400 border-b border-gray-600">
+          <th class="py-1">記号</th><th>値</th>
+          <th class="py-1">記号</th><th>値</th>
+          <th class="py-1">記号</th><th>値</th>
+        </tr></thead>
+        <tbody id="ref-table"></tbody>
+      </table>
+      <p class="text-xs text-gray-500 mt-3">ルール: 小さい値が大きい値の前に来る場合は減算。例: IV=4, IX=9, XL=40, XC=90, CD=400, CM=900</p>
+    </div>
+  </details>
+
+</main>
+
+<script>
+// Roman numeral data
+const REF = [
+  ['I',1],['IV',4],['V',5],['IX',9],['X',10],
+  ['XL',40],['L',50],['XC',90],['C',100],
+  ['CD',400],['D',500],['CM',900],['M',1000]
+];
+
+// Build ref table
+(function(){
+  const tb = document.getElementById('ref-table');
+  const rows = Math.ceil(REF.length/3);
+  for(let r=0;r<rows;r++){
+    const tr = document.createElement('tr');
+    tr.className='border-b border-gray-700';
+    for(let c=0;c<3;c++){
+      const idx=r+c*rows;
+      if(idx<REF.length){
+        const [sym,val]=REF[idx];
+        tr.innerHTML+=`<td class="py-1 font-mono text-indigo-300">${sym /* xss-ok: REFハードコード配列のsym(ローマ数字記号) */}</td><td class="py-1 text-yellow-200">${val /* xss-ok: REFハードコード配列のval(整数) */}</td>`;
+      } else {
+        tr.innerHTML+=`<td></td><td></td>`;
+      }
+    }
+    tb.appendChild(tr);
+  }
+})();
+
+function toRoman(n){
+  let result='';
+  const vals=[[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  for(const [v,s] of vals){ while(n>=v){result+=s;n-=v;} }
+  return result;
+}
+function fromRoman(s){
+  const map={I:1,V:5,X:10,L:50,C:100,D:500,M:1000};
+  let n=0;
+  for(let i=0;i<s.length;i++){
+    const c=map[s[i]]||0, nx=map[s[i+1]]||0;
+    n+=c<nx?-c:c;
+  }
+  return n;
+}
+
+function genPool(diff){
+  const pool=[];
+  if(diff==='small'){
+    // 1-100
+    const specials=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,19,20,24,29,30,39,40,44,45,49,50,59,60,69,70,79,80,89,90,91,94,95,99,100];
+    specials.forEach(n=>pool.push(n));
+  } else {
+    const base=[100,200,300,400,500,600,700,800,900,1000,1100,1500,1600,1776,1900,1944,1999,2000,2001,2024,2025,2026,2500,2999,3000,3500,3888,3999,1234,1492];
+    base.forEach(n=>pool.push(n));
+  }
+  return pool;
+}
+
+let mode='r2a', diff='small';
+let session=[], qi=0, score=0, streak=0, bestScore=0, bestStreak=0;
+let flipped=false;
+
+function loadRecords(){
+  const d=JSON.parse(localStorage.getItem('roman_records')||'{}');
+  bestScore=d.bestScore||0;
+  bestStreak=d.bestStreak||0;
+  document.getElementById('best-score').textContent=bestScore;
+  document.getElementById('best-streak').textContent=bestStreak;
+}
+function saveRecords(){
+  localStorage.setItem('roman_records',JSON.stringify({bestScore,bestStreak}));
+}
+
+function setMode(m){
+  mode=m;
+  document.getElementById('btn-mode-r2a').className='mode-btn px-4 py-2 text-sm font-semibold '+(m==='r2a'?'bg-indigo-600 text-white':'bg-gray-700 text-gray-300');
+  document.getElementById('btn-mode-a2r').className='mode-btn px-4 py-2 text-sm font-semibold '+(m==='a2r'?'bg-indigo-600 text-white':'bg-gray-700 text-gray-300');
+  startSession();
+}
+function setDiff(d){
+  diff=d;
+  document.getElementById('btn-diff-small').className='diff-btn px-4 py-2 text-sm font-semibold '+(d==='small'?'bg-teal-600 text-white':'bg-gray-700 text-gray-300');
+  document.getElementById('btn-diff-large').className='diff-btn px-4 py-2 text-sm font-semibold '+(d==='large'?'bg-teal-600 text-white':'bg-gray-700 text-gray-300');
+  startSession();
+}
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+function startSession(){
+  const pool=shuffle([...genPool(diff)]);
+  session=pool.slice(0,20);
+  qi=0; score=0; streak=0;
+  flipped=false;
+  document.getElementById('card-inner').classList.remove('flipped');
+  document.getElementById('result-panel').classList.add('hidden');
+  document.getElementById('input-area').classList.remove('hidden');
+  document.getElementById('feedback').classList.add('hidden');
+  document.getElementById('hdr-score').textContent='スコア: 0';
+  document.getElementById('hdr-streak').textContent='🔥 0';
+  document.getElementById('q-correct').textContent='正解: 0';
+  loadCard();
+}
+
+function loadCard(){
+  if(qi>=session.length){endSession();return;}
+  const n=session[qi];
+  const q=mode==='r2a'?toRoman(n):String(n);
+  const a=mode==='r2a'?String(n):toRoman(n);
+  document.getElementById('card-question').textContent=q;
+  document.getElementById('card-answer-display').textContent=a;
+  document.getElementById('card-inner').classList.remove('flipped');
+  flipped=false;
+  document.getElementById('answer-input').value='';
+  document.getElementById('answer-input').focus();
+  document.getElementById('feedback').classList.add('hidden');
+  updateProgress();
+}
+
+function flipCard(){
+  flipped=!flipped;
+  document.getElementById('card-inner').classList.toggle('flipped',flipped);
+}
+
+function updateProgress(){
+  const pct=(qi/20)*100;
+  document.getElementById('progress-fill').style.width=pct+'%';
+  document.getElementById('progress-aria').setAttribute('aria-valuenow',qi);
+  document.getElementById('q-counter').textContent=`問題 ${qi+1} / 20`;
+}
+
+function checkAnswer(){
+  if(qi>=session.length)return;
+  const raw=document.getElementById('answer-input').value.trim().toUpperCase();
+  if(!raw)return;
+  const n=session[qi];
+  const correct=mode==='r2a'?String(n):toRoman(n);
+  const fb=document.getElementById('feedback');
+  fb.classList.remove('hidden');
+  if(raw===correct.toUpperCase()){
+    score++; streak++;
+    if(streak>bestStreak){bestStreak=streak;saveRecords();document.getElementById('best-streak').textContent=bestStreak;}
+    if(score>bestScore){bestScore=score;saveRecords();document.getElementById('best-score').textContent=bestScore;}
+    fb.className='w-full text-center text-lg font-bold py-2 rounded-lg bg-green-800 text-green-200 pop';
+    fb.textContent='⭕ 正解！ '+correct;
+    document.getElementById('hdr-score').textContent='スコア: '+score;
+    document.getElementById('hdr-streak').textContent='🔥 '+streak;
+    document.getElementById('q-correct').textContent='正解: '+score;
+    qi++;
+    setTimeout(loadCard,800);
+  } else {
+    streak=0;
+    document.getElementById('hdr-streak').textContent='🔥 0';
+    fb.className='w-full text-center text-lg font-bold py-2 rounded-lg bg-red-800 text-red-200 shake';
+    fb.textContent='❌ 不正解。正解: '+correct;
+    // show answer on card
+    document.getElementById('card-inner').classList.add('flipped');
+    flipped=true;
+    qi++;
+    setTimeout(loadCard,1500);
+  }
+}
+
+function endSession(){
+  document.getElementById('input-area').classList.add('hidden');
+  document.getElementById('result-panel').classList.remove('hidden');
+  document.getElementById('progress-fill').style.width='100%';
+  document.getElementById('q-counter').textContent='終了';
+  const pct=Math.round((score/20)*100);
+  document.getElementById('result-text').textContent=`20問中 ${score}問正解 (${pct}%)`;
+}
+
+loadRecords();
+startSession();
+</script>
+</body>
+</html>
